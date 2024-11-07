@@ -1,65 +1,61 @@
-# a) Data Preparation
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.preprocessing import text
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, Lambda, Dense
-from tensorflow.keras.utils import to_categorical
 
-# Sample sentences (replace this with your dataset)
-corpus = [
-    'this is a sample sentence',
-    'another example for training',
-    'one more sentence to use'
-]
+# Prepare data with context weighting
+def prepare_data(corpus, window_size):
+    words = ' '.join(corpus).split()
+    vocab = list(set(words))
+    word_to_idx = {word: idx for idx, word in enumerate(vocab)}
+    idx_to_word = {idx: word for word, idx in word_to_idx.items()}
 
-# Tokenize the sentences and create word-to-index and index-to-word dictionaries
-tokenizer = text.Tokenizer()
-tokenizer.fit_on_texts(corpus)  # Fit the tokenizer on the corpus
-word_index = tokenizer.word_index  # Create word-to-index dictionary
-index_word = {index: word for word, index in word_index.items()}  # Create index-to-word dictionary
+    X, y = [], []
+    for i in range(window_size, len(words) - window_size):
+        context = [word_to_idx[words[i+j]] for j in range(-window_size, window_size+1) if j != 0]
+        target = word_to_idx[words[i]]
+        X.append(context)
+        y.append(target)
+    return np.array(X), np.array(y), word_to_idx, idx_to_word
 
-# b) Generate Training Data
-window_size = 2  # Context window size
-vocab_size = len(word_index) + 1  # Vocabulary size (+1 for padding)
-sequences = tokenizer.texts_to_sequences(corpus)  # Convert sentences to sequences of integers
+# CBOW Model with weighted context
+class CBOW:
+    def __init__(self, vocab_size, embed_dim):
+        self.W1 = np.random.randn(vocab_size, embed_dim)
+        self.W2 = np.random.randn(embed_dim, vocab_size)
 
-X = []  # Input data for the model
-y = []  # Target data for the model
-for sequence in sequences:
-    for i in range(window_size, len(sequence) - window_size):
-        # Generate context and target
-        context = sequence[i - window_size:i] + sequence[i + 1:i + window_size + 1]  # Context words
-        target = sequence[i]  # Target word
-        X.append(context)  # Append context to X
-        y.append(target)    # Append target to y
+    def forward(self, X, weights):
+        # Compute the weighted average embedding for context words
+        context_embeddings = self.W1[X] * weights[:, np.newaxis]
+        hidden = np.sum(context_embeddings, axis=0) / np.sum(weights)  # Weighted average
+        out = hidden @ self.W2
+        softmax = np.exp(out) / np.sum(np.exp(out))
+        return softmax, hidden
 
-# Pad sequences to ensure uniform input length
-X = pad_sequences(X, maxlen=window_size * 2)
-# Convert target words to one-hot encoded vectors
-y = to_categorical(y, num_classes=vocab_size)
+    def train(self, X, y, lr=0.01, epochs=5000):
+        for _ in range(epochs):
+            for i in range(len(y)):
+                # Use proximity-based weights for context words
+                context_len = len(X[i])
+                weights = np.array([1 / abs(j) if j != 0 else 0 for j in range(-context_len//2, context_len//2+1) if j != 0])
 
-# c) Train the CBOW Model
-embedding_dim = 100  # Dimensionality of word embeddings
+                softmax, hidden = self.forward(X[i], weights)
+                softmax[y[i]] -= 1  # Gradient of loss
 
-# Build the CBOW model
-cbow_model = Sequential([
-    Embedding(input_dim=vocab_size, output_dim=embedding_dim),  # Embedding layer
-    Lambda(lambda x: tf.reduce_mean(x, axis=1)),  # Use TensorFlow's reduce_mean instead of numpy
-    Dense(vocab_size, activation='softmax')  # Output layer with softmax activation
-])
+                # Update weights
+                self.W2 -= lr * np.outer(hidden, softmax)
+                for idx, weight in zip(X[i], weights):  # Weighted update for each context word
+                    self.W1[idx] -= lr * weight * softmax @ self.W2.T / len(X[i])
 
-# Compile the model
-cbow_model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    def predict(self, context, word_to_idx, idx_to_word):
+        idx = [word_to_idx[word] for word in context]
+        weights = np.array([1 / abs(j) if j != 0 else 0 for j in range(-len(idx)//2, len(idx)//2+1) if j != 0])
+        softmax, _ = self.forward(idx, weights)
+        return idx_to_word[np.argmax(softmax)]
 
-# Train the CBOW model
-cbow_model.fit(X, y, epochs=50, batch_size=16)  # Fit model on training data
+# Usage
+corpus = ["open source is amazing", "I love open source projects"]
+window_size = 2
+X, y, word_to_idx, idx_to_word = prepare_data(corpus, window_size)
+model = CBOW(len(word_to_idx), embed_dim=50)
+model.train(X, y)
 
-# d) Output
-# Get the embedding weights for the words
-embedding_weights = cbow_model.layers[0].get_weights()[0]
-
-# Print word embeddings
-for word, index in word_index.items():
-    print(f"Word: {word}, Embedding: {embedding_weights[index]}")
+# Prediction test
+print("Predicted word:", model.predict(["open", "source", "amazing", "I"], word_to_idx, idx_to_word))
