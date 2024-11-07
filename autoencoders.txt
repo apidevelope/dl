@@ -1,0 +1,60 @@
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+
+
+# Assuming 'data' is your dataset
+PATH_TO_DATA = 'http://storage.googleapis.com/download.tensorflow.org/data/ecg.csv'
+data = pd.read_csv(PATH_TO_DATA, header=None)
+
+
+# Splitting data into train and test sets
+X_train, X_test = train_test_split(data, test_size=0.2, random_state=42)
+
+# Build the autoencoder model
+input_dim = X_train.shape[1]  # Number of features
+
+# Encoder
+encoder_input = tf.keras.Input(shape=(input_dim,))
+x = tf.keras.layers.Dense(64, activation='relu')(encoder_input)
+x = tf.keras.layers.Dense(32, activation='relu')(x)
+latent = tf.keras.layers.Dense(16, activation='relu')(x)  # Latent representation
+encoder = tf.keras.Model(encoder_input, latent, name="encoder")
+
+# Decoder
+decoder_input = tf.keras.Input(shape=(16,))
+x = tf.keras.layers.Dense(32, activation='relu')(decoder_input)
+x = tf.keras.layers.Dense(64, activation='relu')(x)
+decoder_output = tf.keras.layers.Dense(input_dim, activation='sigmoid')(x)
+decoder = tf.keras.Model(decoder_input, decoder_output, name="decoder")
+
+# Combine Encoder and Decoder into an Autoencoder model
+autoencoder_input = tf.keras.Input(shape=(input_dim,))
+encoded = encoder(autoencoder_input)
+decoded = decoder(encoded)
+autoencoder = tf.keras.Model(autoencoder_input, decoded, name="autoencoder")
+
+
+
+# Compile the model
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+autoencoder.compile(optimizer=optimizer, loss='mse')  # Mean Squared Error (MSE) as the loss function
+
+# Training the autoencoder
+autoencoder.fit(X_train, X_train, epochs=20, batch_size=32, shuffle=True, validation_data=(X_test, X_test))
+
+# Using the trained encoder for anomaly detection
+# encoded_X_test = encoder.predict(X_test)
+
+# Calculate reconstruction errors (MSE between original and reconstructed data)
+reconstructions = autoencoder.predict(X_test)
+mse = np.mean(np.power(X_test - reconstructions, 2), axis=1)
+
+# Define a threshold for anomaly detection (e.g., based on the reconstruction error)
+threshold = np.mean(mse) + 3 * np.std(mse)  # Example threshold calculation
+
+# Identify anomalies based on the threshold
+anomalies = np.where(mse > threshold)[0]
+
+print("Indices of anomalies:", anomalies)

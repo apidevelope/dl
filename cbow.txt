@@ -1,0 +1,65 @@
+# a) Data Preparation
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing import text
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, Lambda, Dense
+from tensorflow.keras.utils import to_categorical
+
+# Sample sentences (replace this with your dataset)
+corpus = [
+    'this is a sample sentence',
+    'another example for training',
+    'one more sentence to use'
+]
+
+# Tokenize the sentences and create word-to-index and index-to-word dictionaries
+tokenizer = text.Tokenizer()
+tokenizer.fit_on_texts(corpus)  # Fit the tokenizer on the corpus
+word_index = tokenizer.word_index  # Create word-to-index dictionary
+index_word = {index: word for word, index in word_index.items()}  # Create index-to-word dictionary
+
+# b) Generate Training Data
+window_size = 2  # Context window size
+vocab_size = len(word_index) + 1  # Vocabulary size (+1 for padding)
+sequences = tokenizer.texts_to_sequences(corpus)  # Convert sentences to sequences of integers
+
+X = []  # Input data for the model
+y = []  # Target data for the model
+for sequence in sequences:
+    for i in range(window_size, len(sequence) - window_size):
+        # Generate context and target
+        context = sequence[i - window_size:i] + sequence[i + 1:i + window_size + 1]  # Context words
+        target = sequence[i]  # Target word
+        X.append(context)  # Append context to X
+        y.append(target)    # Append target to y
+
+# Pad sequences to ensure uniform input length
+X = pad_sequences(X, maxlen=window_size * 2)
+# Convert target words to one-hot encoded vectors
+y = to_categorical(y, num_classes=vocab_size)
+
+# c) Train the CBOW Model
+embedding_dim = 100  # Dimensionality of word embeddings
+
+# Build the CBOW model
+cbow_model = Sequential([
+    Embedding(input_dim=vocab_size, output_dim=embedding_dim),  # Embedding layer
+    Lambda(lambda x: tf.reduce_mean(x, axis=1)),  # Use TensorFlow's reduce_mean instead of numpy
+    Dense(vocab_size, activation='softmax')  # Output layer with softmax activation
+])
+
+# Compile the model
+cbow_model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# Train the CBOW model
+cbow_model.fit(X, y, epochs=50, batch_size=16)  # Fit model on training data
+
+# d) Output
+# Get the embedding weights for the words
+embedding_weights = cbow_model.layers[0].get_weights()[0]
+
+# Print word embeddings
+for word, index in word_index.items():
+    print(f"Word: {word}, Embedding: {embedding_weights[index]}")
