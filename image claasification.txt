@@ -38,3 +38,14 @@ metrics=['accuracy'])
 
 # Training the model
 model.fit(train_images, train_labels, epochs=1, validation_data=(test_images, test_labels))
+for i in range(10):
+  plt.subplot(5,5,i+1)
+  plt.xticks([]), plt.yticks([])
+  plt.imshow(train_images[i])
+plt.show()
+
+image1 = test_images[1]
+result = model.predict(np.expand_dims(image1, axis=0))
+result = np.argmax(result, axis = 1)
+plt.imshow(image1)
+plt.xlabel(f"Predicted:{class_names[result[0]]}")
